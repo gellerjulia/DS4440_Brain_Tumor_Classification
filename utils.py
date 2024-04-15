@@ -6,10 +6,11 @@ from collections import defaultdict
 import torchvision.transforms as transforms
 import torch
 from IPython.display import display
+from baukit import TraceDict
 
 class BrainTumorCLF(nn.Module):
     """ Paper's Model """
-    def __init__(self):
+    def __init__(self, num_classes):
         super(BrainTumorCLF, self).__init__()
         self.conv1 = nn.Conv2d(in_channels=1, out_channels=32, kernel_size=3)
         self.maxpool1 = nn.MaxPool2d(kernel_size=2, stride=2)
@@ -18,7 +19,7 @@ class BrainTumorCLF(nn.Module):
         self.flatten = nn.Flatten()
         self.lin1 = nn.Linear(6272, 64)
         self.relu = nn.ReLU()
-        self.lin2 = nn.Linear(64, 3)
+        self.lin2 = nn.Linear(64, num_classes)
     
     def forward(self, x):
         res = self.conv1(x)
@@ -36,31 +37,43 @@ class BrainTumorCNN(nn.Module):
     """ Adjusted Model """
     def __init__(self, num_classes):
         super(BrainTumorCNN, self).__init__()
-        self.conv_layers = nn.Sequential(
-            nn.Conv2d(1, 16, kernel_size=3, stride=1, padding=1),
-            nn.ReLU(inplace=True),
-            nn.MaxPool2d(kernel_size=2, stride=2),
-            nn.Conv2d(16, 32, kernel_size=3, stride=1, padding=1),
-            nn.ReLU(inplace=True),
-            nn.MaxPool2d(kernel_size=2, stride=2),
-            nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=1),
-            nn.ReLU(inplace=True),
-            nn.MaxPool2d(kernel_size=2, stride=2)
-        )
-        self.fc_layers = nn.Sequential(
-            nn.Linear(64 * 8 * 8, 128),
-            nn.ReLU(inplace=True),
-            nn.Linear(128, num_classes)  # Setting the output to match the number of classes
-        )
+        self.conv1 = nn.Conv2d(1, 16, kernel_size=3, stride=1, padding=1)
+        self.relu1 = nn.ReLU(inplace=True)
+        self.maxpool1 = nn.MaxPool2d(kernel_size=2, stride=2)
+        self.conv2 = nn.Conv2d(16, 32, kernel_size=3, stride=1, padding=1)
+        self.relu2 = nn.ReLU(inplace=True)
+        self.maxpool2 = nn.MaxPool2d(kernel_size=2, stride=2)
+        self.conv3 = nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=1)
+        self.relu3 = nn.ReLU(inplace=True)
+        self.maxpool3 = nn.MaxPool2d(kernel_size=2, stride=2)
+        self.linear1 = nn.Linear(64 * 8 * 8, 128)
+        self.relu4 = nn.ReLU(inplace=True)
+        self.linear2 = nn.Linear(128, num_classes) 
 
     def forward(self, x):
-        x = self.conv_layers(x)
+        x = self.conv1(x)
+        x = self.maxpool1(x)
+        x = self.relu1(x)
+        x = self.conv2(x)
+        x = self.maxpool2(x)
+        x = self.relu2(x)
+        x = self.conv3(x)
+        x = self.maxpool3(x)
+        x = self.relu3(x) 
         x = x.view(x.size(0), -1)
-        x = self.fc_layers(x)
+        x = self.linear2(self.relu4(self.linear1(x)))
         return x
-    
-# training the model
-def train_model(model, train_loader, loss_fn, optimizer):
+
+def plot_histograms(title, datalist):
+    fig, axes = plt.subplots(len(datalist), 1, figsize=(10, 1.5 * len(datalist)), sharex=True)
+    fig.suptitle(title)
+    for i, (name, data) in enumerate(datalist):
+        axes[i].hist(data.flatten().detach().numpy(), bins=100)
+        axes[i].set_title(name)
+    plt.tight_layout()
+    plt.show()
+
+def train_model(model, train_loader, loss_fn, optimizer, plot_grads=False):
     model.train()
     # Initiate a loss monitor
     train_loss = []
@@ -78,7 +91,46 @@ def train_model(model, train_loader, loss_fn, optimizer):
 
         train_loss.append(loss.item())
 
+    # plot gradients
+    if plot_grads:
+        with TraceDict(model, [n for n, _ in model.named_modules() if 'conv' in n or 'lin' in n],
+                    retain_grad=True) as trace:
+            predicted = model(images[0:1])
+            loss = loss_fn(predicted, labels[0:1])
+            model.zero_grad()
+            loss.backward()
+
+        plot_histograms('Parameter gradients', [(n, p.grad)
+            for n, p in model.named_parameters() if 'weight' in n])
+
+        plot_histograms('Activations', [(n, trace[n].output)
+            for n, p in model.named_modules() if 'lin' in n or 'conv' in n])
+
+        plot_histograms('Activation gradients', [(n, trace[n].output.grad)
+            for n, p in model.named_modules() if 'lin' in n or 'conv' in n])
+    
     return np.mean(train_loss), correct_predictions / len(train_loader.dataset)
+
+# # training the model
+# def train_model(model, train_loader, loss_fn, optimizer):
+#     model.train()
+#     # Initiate a loss monitor
+#     train_loss = []
+#     correct_predictions = 0
+#     for images, labels in train_loader:
+#         # predict the class
+#         predicted = model(images)
+#         loss = loss_fn(predicted, labels)
+#         correct_predictions += (predicted.argmax(dim=1) == labels).sum().item()
+
+#         # Backward pass (back propagation)
+#         optimizer.zero_grad()
+#         loss.backward()
+#         optimizer.step()
+
+#         train_loss.append(loss.item())
+
+#     return np.mean(train_loss), correct_predictions / len(train_loader.dataset)
 
 def evaluate_model(model, val_loader, loss_fn, device, return_confusion_matrix=False):
     model.eval()
@@ -168,8 +220,7 @@ def find_image(model, true_class, predicted_class, test_loader):
         print("No image found matching the specified true class and predicted class.")
 
 
-def visualize_con_layers(num_of_classes, sample_data):
-    num_classes = num_of_classes
+def visualize_con_layers(sample_data):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = BrainTumorCNN().to(device)
     # Fetch a sample batch of images and labels
@@ -225,7 +276,7 @@ def visualize_con_layers(num_of_classes, sample_data):
     
 
 
-def plot_train_val_graphs(training_losses, training_accuracy, validation_losses, validation_accuracy):# Plotting training and validation loss
+def plot_train_val_graphs(epochs, training_losses, training_accuracy, validation_losses, validation_accuracy):# Plotting training and validation loss
     plt.figure(figsize=(12, 6))
     plt.subplot(1, 2, 1)
     plt.plot(range(1, epochs+1), training_losses, label='Training Loss')
