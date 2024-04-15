@@ -75,16 +75,17 @@ def plot_histograms(title, datalist):
 
 def train_model(model, train_loader, loss_fn, optimizer, plot_grads=False):
     model.train()
-    # Initiate a loss monitor
+    # initiate a loss monitor
     train_loss = []
     correct_predictions = 0
+    
     for images, labels in train_loader:
         # predict the class
         predicted = model(images)
         loss = loss_fn(predicted, labels)
         correct_predictions += (predicted.argmax(dim=1) == labels).sum().item()
 
-        # Backward pass (back propagation)
+        # backward pass
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
@@ -220,37 +221,33 @@ def find_image(model, true_class, predicted_class, test_loader):
         print("No image found matching the specified true class and predicted class.")
 
 
-def visualize_con_layers(sample_data):
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = BrainTumorCNN().to(device)
-    # Fetch a sample batch of images and labels
-    images, labels = next(iter(sample_data))
+def visualize_con_layers(model, device, test_data_loader):
+    # get batch of images and labels
+    images, labels = next(iter(test_data_loader))
+    
     def get_activation(layer_name):
         def hook(model, input, output):
             activations[layer_name] = output.detach()
         return hook
 
-    # Assuming model is already defined and set up
     activations = {}
-    model.conv_layers[0].register_forward_hook(get_activation('first_conv_layer'))
-    model.conv_layers[3].register_forward_hook(get_activation('second_conv_layer'))
-    model.conv_layers[6].register_forward_hook(get_activation('third_conv_layer'))
+    model.conv1.register_forward_hook(get_activation('first_conv_layer'))
+    model.conv2.register_forward_hook(get_activation('second_conv_layer'))
+    model.conv3.register_forward_hook(get_activation('third_conv_layer'))
 
-    # Now, run a forward pass with the sample data
+    # run a forward pass
     model.eval()
     with torch.no_grad():
         # Modify this line to ensure images are loaded to the appropriate device
         _ = model(images.to(device))  # Use .to(device) instead of explicitly .cuda()
 
-    import matplotlib.pyplot as plt
-
-    # Extract the activation of the first image in the batch from the first conv layer
+    # extract the activation of the first image in the batch from the first conv layer
     first_image_features = activations['first_conv_layer'][0]
     second_image_features = activations['second_conv_layer'][0]
     third_image_features = activations['third_conv_layer'][0]
     images_features_lst = [first_image_features, second_image_features, third_image_features]
 
-    # Number of feature maps to display
+    # number of feature maps to display
     num_feature_maps_lst = [first_image_features.shape[0], second_image_features.shape[0], third_image_features.shape[0]]
 
     nth = {
@@ -273,8 +270,6 @@ def visualize_con_layers(sample_data):
             if i >= num_feature_maps_lst[layer] - 1:
                 break
         plt.show()
-    
-
 
 def plot_train_val_graphs(epochs, training_losses, training_accuracy, validation_losses, validation_accuracy):# Plotting training and validation loss
     plt.figure(figsize=(12, 6))
