@@ -221,7 +221,7 @@ def find_image(model, true_class, predicted_class, test_loader):
         print("No image found matching the specified true class and predicted class.")
 
 
-def visualize_con_layers(model, device, test_data_loader):
+def visualize_con_layers_adjusted(model, device, test_data_loader):
     # get batch of images and labels
     images, labels = next(iter(test_data_loader))
     
@@ -255,6 +255,52 @@ def visualize_con_layers(model, device, test_data_loader):
         2: "Second",
         3: "Third",
         # etc
+    }
+
+    for layer in range(len(num_feature_maps_lst)):
+
+        fig, axes = plt.subplots(nrows=int(num_feature_maps_lst[layer]**0.5), ncols=int(num_feature_maps_lst[layer]**0.5), figsize=(12, 12))
+        fig.suptitle(f'The {nth[layer+1]} Convolution Layer', fontsize=12)
+        fig.subplots_adjust(hspace=0.3, wspace=0.3)
+
+        for i, ax in enumerate(axes.flat):
+            # Plot the feature map
+            ax.imshow(images_features_lst[layer][i].cpu().numpy(), cmap='gray')
+            ax.axis('off')  # Turn off axis
+            if i >= num_feature_maps_lst[layer] - 1:
+                break
+        plt.show()
+
+def visualize_con_layers_paper(model, device, test_data_loader):
+    # get batch of images and labels
+    images, labels = next(iter(test_data_loader))
+    
+    def get_activation(layer_name):
+        def hook(model, input, output):
+            activations[layer_name] = output.detach()
+        return hook
+
+    activations = {}
+    model.conv1.register_forward_hook(get_activation('first_conv_layer'))
+    model.conv2.register_forward_hook(get_activation('second_conv_layer'))
+
+    # run a forward pass
+    model.eval()
+    with torch.no_grad():
+        # Modify this line to ensure images are loaded to the appropriate device
+        _ = model(images.to(device))  # Use .to(device) instead of explicitly .cuda()
+
+    # extract the activation of the first image in the batch from the first conv layer
+    first_image_features = activations['first_conv_layer'][0]
+    second_image_features = activations['second_conv_layer'][0]
+    images_features_lst = [first_image_features, second_image_features]
+
+    # number of feature maps to display
+    num_feature_maps_lst = [first_image_features.shape[0], second_image_features.shape[0]]
+
+    nth = {
+        1: "First",
+        2: "Second",
     }
 
     for layer in range(len(num_feature_maps_lst)):
