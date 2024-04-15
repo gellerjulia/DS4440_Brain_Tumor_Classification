@@ -166,3 +166,82 @@ def find_image(model, true_class, predicted_class, test_loader):
 
     if not found_image:
         print("No image found matching the specified true class and predicted class.")
+
+
+def visualize_con_layers(num_of_classes, sample_data):
+    num_classes = num_of_classes
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = BrainTumorCNN().to(device)
+    # Fetch a sample batch of images and labels
+    images, labels = next(iter(sample_data))
+    def get_activation(layer_name):
+        def hook(model, input, output):
+            activations[layer_name] = output.detach()
+        return hook
+
+    # Assuming model is already defined and set up
+    activations = {}
+    model.conv_layers[0].register_forward_hook(get_activation('first_conv_layer'))
+    model.conv_layers[3].register_forward_hook(get_activation('second_conv_layer'))
+    model.conv_layers[6].register_forward_hook(get_activation('third_conv_layer'))
+
+    # Now, run a forward pass with the sample data
+    model.eval()
+    with torch.no_grad():
+        # Modify this line to ensure images are loaded to the appropriate device
+        _ = model(images.to(device))  # Use .to(device) instead of explicitly .cuda()
+
+    import matplotlib.pyplot as plt
+
+    # Extract the activation of the first image in the batch from the first conv layer
+    first_image_features = activations['first_conv_layer'][0]
+    second_image_features = activations['second_conv_layer'][0]
+    third_image_features = activations['third_conv_layer'][0]
+    images_features_lst = [first_image_features, second_image_features, third_image_features]
+
+    # Number of feature maps to display
+    num_feature_maps_lst = [first_image_features.shape[0], second_image_features.shape[0], third_image_features.shape[0]]
+
+    nth = {
+        1: "First",
+        2: "Second",
+        3: "Third",
+        # etc
+    }
+
+    for layer in range(len(num_feature_maps_lst)):
+
+        fig, axes = plt.subplots(nrows=int(num_feature_maps_lst[layer]**0.5), ncols=int(num_feature_maps_lst[layer]**0.5), figsize=(12, 12))
+        fig.suptitle(f'The {nth[layer+1]} Convolution Layer', fontsize=12)
+        fig.subplots_adjust(hspace=0.3, wspace=0.3)
+
+        for i, ax in enumerate(axes.flat):
+            # Plot the feature map
+            ax.imshow(images_features_lst[layer][i].cpu().numpy(), cmap='gray')
+            ax.axis('off')  # Turn off axis
+            if i >= num_feature_maps_lst[layer] - 1:
+                break
+        plt.show()
+    
+
+
+def plot_train_val_graphs(training_losses, training_accuracy, validation_losses, validation_accuracy):# Plotting training and validation loss
+    plt.figure(figsize=(12, 6))
+    plt.subplot(1, 2, 1)
+    plt.plot(range(1, epochs+1), training_losses, label='Training Loss')
+    plt.plot(range(1, epochs+1), validation_losses, label='Validation Loss')
+    plt.xlabel('Epochs')
+    plt.ylabel('Loss')
+    plt.title('Training and Validation Loss')
+    plt.legend()
+
+    # Plotting training and validation accuracy
+    plt.subplot(1, 2, 2)
+    plt.plot(range(1, epochs+1), training_accuracy, label='Training Accuracy')
+    plt.plot(range(1, epochs+1), validation_accuracy, label='Validation Accuracy')
+    plt.xlabel('Epochs')
+    plt.ylabel('Accuracy')
+    plt.title('Training and Validation Accuracy')
+    plt.legend()
+
+    plt.show()
